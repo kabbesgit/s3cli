@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/kabbesgit/s3cli/config"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spf13/cobra"
-	"github.com/yourusername/s3cli/config"
 )
 
 var storeCmd = &cobra.Command{
@@ -104,6 +105,17 @@ var deleteStoreCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		force, _ := cmd.Flags().GetBool("force")
+		if !force {
+			fmt.Printf("Are you sure you want to delete the store '%s'? [y/N]: ", name)
+			var response string
+			fmt.Scanln(&response)
+			if strings.ToLower(response) != "y" {
+				fmt.Println("Aborted.")
+				return
+			}
+		}
+
 		cfg, err := config.LoadConfig()
 		if err != nil {
 			fmt.Println("Error loading config:", err)
@@ -138,6 +150,7 @@ func init() {
 	addStoreCmd.Flags().String("access-key", "", "Access key of the store")
 	addStoreCmd.Flags().String("secret-key", "", "Secret key of the store")
 	deleteStoreCmd.Flags().String("name", "", "Name of the store to delete")
+	deleteStoreCmd.Flags().BoolP("force", "f", false, "Force deletion without confirmation")
 	storeCmd.AddCommand(addStoreCmd, listStoresCmd, deleteStoreCmd)
 	rootCmd.AddCommand(storeCmd)
 }
