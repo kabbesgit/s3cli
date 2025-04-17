@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 )
 
+// Store represents an S3 store configuration.
 type Store struct {
 	Name      string `json:"name"`
 	Endpoint  string `json:"endpoint"`
@@ -14,10 +15,12 @@ type Store struct {
 	SecretKey string `json:"secret_key"`
 }
 
+// Config holds all S3 store configurations.
 type Config struct {
 	Stores []Store `json:"stores"`
 }
 
+// configFilePath returns the path to the config file, creating the directory if needed.
 func configFilePath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -30,6 +33,7 @@ func configFilePath() (string, error) {
 	return filepath.Join(configDir, "s3cli_config.json"), nil
 }
 
+// LoadConfig loads the configuration from disk, or returns an empty config if not found.
 func LoadConfig() (*Config, error) {
 	path, err := configFilePath()
 	if err != nil {
@@ -49,6 +53,7 @@ func LoadConfig() (*Config, error) {
 	return &cfg, nil
 }
 
+// SaveConfig saves the configuration to disk.
 func SaveConfig(cfg *Config) error {
 	path, err := configFilePath()
 	if err != nil {

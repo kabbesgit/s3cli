@@ -1,92 +1,84 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
+	"os/exec"
 
-	"github.com/kabbesgit/s3cli/config"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spf13/cobra"
 )
 
 var putCmd = &cobra.Command{
-	Use:   "put <store> <bucket>/<path> <localfile>",
-	Short: "Upload a local file to a bucket/path in a store",
-	Args:  cobra.ExactArgs(3),
+	Use:   "put [store] <bucket>/<path> <localfile>",
+	Short: "Upload a local file to a bucket/path in a store (via mc)",
+	Args:  cobra.RangeArgs(2, 3),
 	Run: func(cmd *cobra.Command, args []string) {
-		storeName := args[0]
-		bucketAndPath := args[1]
-		localFile := args[2]
-
-		// Split bucket and object key
-		parts := strings.SplitN(bucketAndPath, "/", 2)
-		bucket := parts[0]
-		objectKey := ""
-		if len(parts) > 1 {
-			objectKey = parts[1]
-		}
-		if objectKey == "" {
-			fmt.Println("You must specify a bucket and object key, e.g. mybucket/myfile.txt")
-			os.Exit(1)
-		}
-
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Println("Error loading config:", err)
-			os.Exit(1)
-		}
-
-		var store *config.Store
-		for _, s := range cfg.Stores {
-			if s.Name == storeName {
-				store = &s
-				break
+		var storeName, bucketAndPath, localFile string
+		if len(args) == 3 {
+			storeName = args[0]
+			bucketAndPath = args[1]
+			localFile = args[2]
+		} else if len(args) == 2 {
+			var err error
+			storeName, err = getCurrentStore()
+			if err != nil || storeName == "" {
+				fmt.Fprintln(os.Stderr, "No store specified and no current store set. Use 's3cli store use <name>' or provide a store argument.")
+				os.Exit(1)
 			}
-		}
-		if store == nil {
-			fmt.Printf("Store '%s' not found.\n", storeName)
+			bucketAndPath = args[0]
+			localFile = args[1]
+		} else {
+			fmt.Fprintln(os.Stderr, "Usage: s3cli put [store] <bucket>/<path> <localfile>")
 			os.Exit(1)
 		}
 
-		minioClient, err := minio.New(store.Endpoint, &minio.Options{
-			Creds:  credentials.NewStaticV4(store.AccessKey, store.SecretKey, ""),
-			Secure: strings.HasPrefix(store.Endpoint, "https://"),
-		})
+		// Compose mc alias/bucket/path
+		mcPath := fmt.Sprintf("%s/%s", storeName, bucketAndPath)
+
+		mcCmd := exec.Command("mc", "cp", localFile, mcPath)
+		output, err := mcCmd.CombinedOutput()
+		fmt.Print(string(output))
 		if err != nil {
-			fmt.Println("Failed to create S3 client:", err)
+			fmt.Fprintf(os.Stderr, "mc cp error: %v\n", err)
+		}
+	},
+}
+
+var getCmd = &cobra.Command{
+	Use:   "get [store] <bucket>/<path> <localfile>",
+	Short: "Download a file from a bucket in a store (via mc)",
+	Args:  cobra.RangeArgs(2, 3),
+	Run: func(cmd *cobra.Command, args []string) {
+		var storeName, bucketAndPath, localFile string
+		if len(args) == 3 {
+			storeName = args[0]
+			bucketAndPath = args[1]
+			localFile = args[2]
+		} else if len(args) == 2 {
+			var err error
+			storeName, err = getCurrentStore()
+			if err != nil || storeName == "" {
+				fmt.Fprintln(os.Stderr, "No store specified and no current store set. Use 's3cli store use <name>' or provide a store argument.")
+				os.Exit(1)
+			}
+			bucketAndPath = args[0]
+			localFile = args[1]
+		} else {
+			fmt.Fprintln(os.Stderr, "Usage: s3cli get [store] <bucket>/<path> <localfile>")
 			os.Exit(1)
 		}
 
-		file, err := os.Open(localFile)
+		mcPath := fmt.Sprintf("%s/%s", storeName, bucketAndPath)
+		mcCmd := exec.Command("mc", "cp", mcPath, localFile)
+		output, err := mcCmd.CombinedOutput()
+		fmt.Print(string(output))
 		if err != nil {
-			fmt.Printf("Failed to open local file '%s': %v\n", localFile, err)
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "mc get error: %v\n", err)
 		}
-		defer file.Close()
-
-		ctx := context.Background()
-		contentType := "application/octet-stream"
-		ext := strings.ToLower(filepath.Ext(localFile))
-		if ext == ".txt" {
-			contentType = "text/plain"
-		} // (add more types as needed)
-
-		_, err = minioClient.FPutObject(ctx, bucket, objectKey, localFile, minio.PutObjectOptions{
-			ContentType: contentType,
-		})
-		if err != nil {
-			fmt.Printf("Failed to upload file: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Successfully uploaded '%s' to '%s/%s'\n", localFile, bucket, objectKey)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(putCmd)
+	rootCmd.AddCommand(getCmd)
 }

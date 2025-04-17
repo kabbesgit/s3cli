@@ -1,40 +1,43 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
-	"github.com/kabbesgit/s3cli/config"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spf13/cobra"
 )
 
 var rmCmd = &cobra.Command{
-	Use:   "rm <store> <bucket>/<path>",
-	Short: "Remove a file from a bucket/path in a store",
-	Args:  cobra.ExactArgs(2),
+	Use:   "rm [store] <bucket>/<path>",
+	Short: "Remove a file from a bucket/path in a store (via mc)",
+	Args:  cobra.RangeArgs(1, 2),
 	Run: func(cmd *cobra.Command, args []string) {
-		storeName := args[0]
-		bucketAndPath := args[1]
-
-		// Split bucket and object key
-		parts := strings.SplitN(bucketAndPath, "/", 2)
-		bucket := parts[0]
-		objectKey := ""
-		if len(parts) > 1 {
-			objectKey = parts[1]
-		}
-		if objectKey == "" {
-			fmt.Println("You must specify a bucket and object key, e.g. mybucket/myfile.txt")
+		var storeName, bucketAndPath string
+		if len(args) == 2 {
+			storeName = args[0]
+			bucketAndPath = args[1]
+		} else if len(args) == 1 {
+			var err error
+			storeName, err = getCurrentStore()
+			if err != nil || storeName == "" {
+				fmt.Fprintln(os.Stderr, "No store specified and no current store set. Use 's3cli store use <name>' or provide a store argument.")
+				os.Exit(1)
+			}
+			bucketAndPath = args[0]
+		} else {
+			fmt.Fprintln(os.Stderr, "Usage: s3cli rm [store] <bucket>/<path>")
 			os.Exit(1)
 		}
 
-		force, _ := cmd.Flags().GetBool("force")
+		force, err := cmd.Flags().GetBool("force")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing --force flag: %v\n", err)
+			os.Exit(1)
+		}
 		if !force {
-			fmt.Printf("Are you sure you want to remove '%s/%s'? [y/N]: ", bucket, objectKey)
+			fmt.Printf("Are you sure you want to remove '%s/%s'? [y/N]: ", storeName, bucketAndPath)
 			var response string
 			fmt.Scanln(&response)
 			if strings.ToLower(response) != "y" {
@@ -43,41 +46,13 @@ var rmCmd = &cobra.Command{
 			}
 		}
 
-		cfg, err := config.LoadConfig()
+		mcPath := fmt.Sprintf("%s/%s", storeName, bucketAndPath)
+		mcCmd := exec.Command("mc", "rm", mcPath)
+		output, err := mcCmd.CombinedOutput()
+		fmt.Print(string(output))
 		if err != nil {
-			fmt.Println("Error loading config:", err)
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "mc rm error: %v\n", err)
 		}
-
-		var store *config.Store
-		for _, s := range cfg.Stores {
-			if s.Name == storeName {
-				store = &s
-				break
-			}
-		}
-		if store == nil {
-			fmt.Printf("Store '%s' not found.\n", storeName)
-			os.Exit(1)
-		}
-
-		minioClient, err := minio.New(store.Endpoint, &minio.Options{
-			Creds:  credentials.NewStaticV4(store.AccessKey, store.SecretKey, ""),
-			Secure: strings.HasPrefix(store.Endpoint, "https://"),
-		})
-		if err != nil {
-			fmt.Println("Failed to create S3 client:", err)
-			os.Exit(1)
-		}
-
-		ctx := context.Background()
-		err = minioClient.RemoveObject(ctx, bucket, objectKey, minio.RemoveObjectOptions{})
-		if err != nil {
-			fmt.Printf("Failed to remove object: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Successfully removed '%s/%s'\n", bucket, objectKey)
 	},
 }
 

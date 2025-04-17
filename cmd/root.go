@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var region string
+
 var rootCmd = &cobra.Command{
 	Use:   "s3cli",
 	Short: "A CLI tool to manage S3-compatible stores",
@@ -21,6 +23,7 @@ var helloCmd = &cobra.Command{
 	},
 }
 
+// Execute runs the root command for s3cli.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -30,4 +33,5 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(helloCmd)
+	rootCmd.PersistentFlags().StringVar(&region, "region", "", "AWS region to use")
 }
